@@ -145,7 +145,7 @@ def main():
                                 )
             else:
                 integrator.integrate1d(data=fabioFile.data,
-                                nbPt=min(fabioFile.data.shape),
+                                nbPt=options.npt or min(fabioFile.data.shape),
                                 dummy=options.dummy,
                                 delta_dummy=options.delta_dummy,
                                 filename=outFile,
