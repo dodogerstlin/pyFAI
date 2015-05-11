@@ -73,7 +73,7 @@ if sys.platform != "win32":
     WindowsError = RuntimeError
 has_fftw3 = None
 try:
-    import fftw3
+    import fftw3a
     has_fftw3 = True
 except (ImportError, WindowsError) as err:
     logger.warn("Exception %s: FFTw3 not available. Falling back on Scipy", err)
@@ -540,7 +540,7 @@ def averageImages(listImages, output=None, threshold=0.1, minimum=None, maximum=
     @param cutoff: keep all data where (I-center)/std < cutoff
     @return: filename with the data or the data ndarray in case format=None
     """
-    if filter_ not in ["min", "max", "median", "mean"]:
+    if filter_ not in ["min", "max", "median", "mean", "add"]:
         logger.warning("Filter %s not understood. switch to mean filter")
         filter_ = "mean"
     ld = len(listImages)
@@ -551,7 +551,7 @@ def averageImages(listImages, output=None, threshold=0.1, minimum=None, maximum=
     flat = None
     big_img = None
     for idx, fn in enumerate(listImages[:]):
-        if isinstance(fn, six.string_types):
+        if type(fn) in types.StringTypes:
             logger.info("Reading %s" % fn)
             ds = fabio.open(fn).data
         else:
@@ -563,15 +563,15 @@ def averageImages(listImages, output=None, threshold=0.1, minimum=None, maximum=
         if do_dark and (dark is None):
             if "ndim" in dir(darks) and darks.ndim == 3:
                 dark = averageDark(darks, center_method="mean", cutoff=4)
-            elif ("__len__" in dir(darks)) and isinstance(darks[0], six.string_types):
-                dark = averageDark([fabio.open(f).data for f in darks if exists(f)], center_method="mean", cutoff=4)
+            elif ("__len__" in dir(darks)) and (type(darks[0]) in types.StringTypes):
+                dark = averageDark([fabio.open(f).data for f in darks if os.path.exists(f)], center_method="mean", cutoff=4)
             elif ("__len__" in dir(darks)) and ("ndim" in dir(darks[0])) and (darks[0].ndim == 2):
                 dark = averageDark(darks, center_method="mean", cutoff=4)
         if do_flat and (flat is  None):
             if "ndim" in dir(flats) and flats.ndim == 3:
                 flat = averageDark(flats, center_method="mean", cutoff=4)
-            elif ("__len__" in dir(flats)) and isinstance(flats[0], six.string_types):
-                flat = averageDark([fabio.open(f).data for f in flats if exists(f)], center_method="mean", cutoff=4)
+            elif ("__len__" in dir(flats)) and (type(flats[0]) in types.StringTypes):
+                flat = averageDark([fabio.open(f).data for f in flats if os.path.exists(f)], center_method="mean", cutoff=4)
             elif ("__len__" in dir(flats)) and ("ndim" in dir(flats[0])) and (flats[0].ndim == 2):
                 flat = averageDark(flats, center_method="mean", cutoff=4)
             else:
@@ -606,12 +606,19 @@ def averageImages(listImages, output=None, threshold=0.1, minimum=None, maximum=
                 sumImg = correctedImg
             else:
                 sumImg += correctedImg
+        elif filter_ == "add":
+            if sumImg is None:
+                sumImg = correctedImg
+            else:
+                sumImg += correctedImg
     if cutoff or (filter_ == "median"):
         datared = averageDark(big_img, filter_, cutoff)
     else:
         if filter_ in ["max", "min"]:
             datared = numpy.ascontiguousarray(sumImg, dtype=numpy.float32)
         elif filter_ == "mean":
+            datared = sumImg / numpy.float32(ld)
+        elif filter_ == "add":
             datared = sumImg / numpy.float32(ld)
     logger.debug("Intensity range in merged dataset : %s --> %s", datared.min(), datared.max())
     if format is not None:
@@ -647,24 +654,31 @@ def averageImages(listImages, output=None, threshold=0.1, minimum=None, maximum=
             fabiomod = fabio.__getattribute__(format + "image")
             fabioclass = fabiomod.__getattribute__(format + "image")
             header = {"method":filter_,
-                      "nframes":ld,
-                      "cutoff":str(cutoff)}
+                        "nframes":ld,
+                        "cutoff":str(cutoff)
+                        }
             form = "merged_file_%%0%ii" % len(str(len(listImages)))
             header_list = ["method", "nframes", "cutoff"]
             for i, f in enumerate(listImages):
                 name = form % i
                 header[name] = f
                 header_list.append(name)
+            
             fimg = fabioclass(data=datared,
                               header=header)
-#            if "header_keys" in dir(fimg):
-            fimg.header_keys = header_list
 
-            fimg.write(output)
+            if filter_ == "add":
+              fimg = fabioclass(data=numpy.int32(datared*numpy.float32(ld)),
+                              header=header)
+#            if "header_keys" in dir(fimg):
+            #fimg.header_keys = header_list
+
+            fimg.write(output,force_type=numpy.int32)
             logger.info("Wrote %s" % output)
         return output
     else:
         return datared
+
 
 def boundingBox(img):
     """
